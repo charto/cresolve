@@ -1,0 +1,19 @@
+{
+	"compileOnSave": true,
+	"compilerOptions": {
+		"declaration": false,
+		"lib": [ "dom", "es5", "es2015.collection", "es2015.promise" ],
+		"module": "commonjs",
+		"moduleResolution": "node",
+		"noImplicitAny": true,
+		"noImplicitThis": true,
+		"removeComments": false,
+		"sourceMap": false,
+		"strictNullChecks": true,
+		"target": "es5",
+		"types": [ "bluebird", "node" ]
+	},
+	"files": [
+		"test.ts"
+	]
+}
