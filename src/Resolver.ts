@@ -1,9 +1,22 @@
 import * as SystemJS from 'systemjs';
 
+import { PathTree } from './PathTree';
+
 export interface PackageLocation {
 	modulesRoot: string;
 	name: string;
 }
+
+export interface SystemConfig {
+	map?: { [name: string]: any };
+	meta?: { [name: string]: any };
+	packages: { [name: string]: any };
+};
+
+export interface GeneratedConfig extends SystemConfig {
+	map: { [name: string]: any };
+	meta: { [name: string]: any };
+};
 
 export class Resolver {
 
@@ -17,10 +30,22 @@ export class Resolver {
 
 		const result = this.ifExists(packageRoot + '/package.json').then(
 			() => {
-				if(!this.globalMeta[guess.modulesRoot + '*']) {
-					this.globalMeta[guess.modulesRoot + '*'] = { globals:
-						{ process: 'cresolve://process' }
+				const modulesGlob = guess.modulesRoot + '*';
+
+				if(!this.systemConfig.meta[modulesGlob]) {
+					this.systemConfig.meta[modulesGlob] = {
+						globals: { process: 'global:process' }
 					};
+
+					this.systemConfig.packages[guess.modulesRoot] = {
+						defaultExtension: 'js'
+					};
+
+					if(!this.systemPending.meta) this.systemPending.meta = {};
+					if(!this.systemPending.packages) this.systemPending.packages = {};
+
+					this.systemPending.meta[modulesGlob] = this.systemConfig.meta[modulesGlob];
+					this.systemPending.packages[guess.modulesRoot] = this.systemConfig.packages[guess.modulesRoot];
 				}
 
 				return(packageRoot);
@@ -96,10 +121,11 @@ export class Resolver {
 		}).then(
 			(res: { text(): Promise<string> }) => res.text()
 		).then((data: string) => {
+			// console.log(data);
 			const pkg = JSON.parse(data);
 			let main = pkg.main || 'index.js';
 
-			this.metadata[packageName] = pkg;
+			this.jsonTbl[packageName] = pkg;
 
 			// Use browser entry point if available.
 			if(typeof(pkg.browser) == 'string') {
@@ -114,21 +140,24 @@ export class Resolver {
 				// Apply mappings to main and pathName.
 			}
 
+			this.packageTree.insert(rootUri, packageName);
+
 			// TODO: Configure SystemJS.
+			const config = this.systemConfig;
+			const pending = this.systemPending;
 
-			const map: { [name: string]: string } = {};
-			const packages: { [name: string]: any } = {};
-			const packageSpec: any = {
-				main
-			};
+			if(!pending.map) pending.map = {}
 
-			//packageSpec.map = {};
+			config.map[packageName] = rootUri;
 
-			map[packageName] = rootUri;
-			packages[packageName] = packageSpec;
+			if(!config.packages[packageName]) config.packages[packageName] = {};
+			config.packages[packageName].main = main;
 
-			sys.config({ map, meta: this.globalMeta, packages });
-			console.log(sys.getConfig())
+			pending.map[packageName] = config.map[packageName];
+			pending.packages[packageName] = config.packages[packageName];
+
+			sys.config(pending);
+			this.systemPending = { packages: {} };
 
 			return((rootUri + '/' + pathName).replace(/(\/[^./]+)$/, '$1.js'));
 		});
@@ -160,7 +189,29 @@ export class Resolver {
 			})
 		).then((resolved: string) => {
 			if(resolved == indexUri) {
-				// TODO: Configure path mapping in SystemJS.
+				const found = this.packageTree.find(indexUri);
+
+				if(found) {
+					const packageName = found.node!['/data']!;
+					const subPath = '.' + indexUri.substr(found.next!);
+
+					console.log(subPath);
+
+					let config = this.systemConfig.packages[packageName];
+
+					if(!config) {
+						config = {};
+						this.systemConfig.packages[packageName] = config;
+					}
+
+					if(!config.map) config.map = {};
+					config.map[subPath.replace(/\/index\.js$/, '.js')] = subPath;
+
+					this.systemPending.packages[packageName] = config;
+
+					sys.config(this.systemPending);
+					this.systemPending = { packages: {} };
+				}
 			}
 
 			uri = resolved;
@@ -182,7 +233,7 @@ export class Resolver {
 		const originalResolve = system.resolve;
 		const resolver = this;
 
-		system.set('cresolve://process', system.newModule({ env: { 'NODE_ENV': env } }));
+		system.set('global:process', system.newModule({ env: { 'NODE_ENV': env } }));
 
 		system.resolve = function(
 			this: typeof SystemJS,
@@ -193,7 +244,9 @@ export class Resolver {
 		};
 	}
 
-	globalMeta: any = {};
-	metadata: { [key: string]: Object } = {};
+	systemConfig: GeneratedConfig = { map: {}, meta: {}, packages: {} };
+	systemPending: SystemConfig = { packages: {} };
+	packageTree = new PathTree<string>();
+	jsonTbl: { [key: string]: Object } = {};
 
 }
