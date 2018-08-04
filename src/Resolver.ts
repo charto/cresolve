@@ -126,36 +126,42 @@ export class Resolver {
 			let main = pkg.main || 'index.js';
 
 			this.jsonTbl[packageName] = pkg;
+			this.packageTree.insert(rootUri, packageName);
+
+			const config = this.systemConfig;
+			const pending = this.systemPending;
+
+			config.map[packageName] = rootUri;
+
+			if(!pending.map) pending.map = {}
+			pending.map[packageName] = config.map[packageName];
+
+			let subConfig = config.packages[packageName];
+
+			if(!subConfig) {
+				subConfig = {};
+				config.packages[packageName] = subConfig;
+			}
+
+			subConfig.main = main;
 
 			// Use browser entry point if available.
 			if(typeof(pkg.browser) == 'string') {
 				if(pathName == main) pathName = pkg.browser;
 				main = pkg.browser;
+			} else if(typeof(pkg.browser) == 'object') {
+				if(!subConfig.map) subConfig.map = {};
+
+				for(let key of Object.keys(pkg.browser)) {
+					subConfig.map[key] = pkg.browser[key] || '@empty';
+				}
 			}
+
+			pending.packages[packageName] = subConfig;
 
 			pathName = pathName || main;
 
-			if(typeof(pkg.browser) == 'object') {
-				// TODO: Parse browser field.
-				// Apply mappings to main and pathName.
-			}
-
-			this.packageTree.insert(rootUri, packageName);
-
-			// TODO: Configure SystemJS.
-			const config = this.systemConfig;
-			const pending = this.systemPending;
-
-			if(!pending.map) pending.map = {}
-
-			config.map[packageName] = rootUri;
-
-			if(!config.packages[packageName]) config.packages[packageName] = {};
-			config.packages[packageName].main = main;
-
-			pending.map[packageName] = config.map[packageName];
-			pending.packages[packageName] = config.packages[packageName];
-
+			console.log(JSON.stringify(pending, null, '\t'))
 			sys.config(pending);
 			this.systemPending = { packages: {} };
 
@@ -197,17 +203,17 @@ export class Resolver {
 
 					console.log(subPath);
 
-					let config = this.systemConfig.packages[packageName];
+					let subConfig = this.systemConfig.packages[packageName];
 
-					if(!config) {
-						config = {};
-						this.systemConfig.packages[packageName] = config;
+					if(!subConfig) {
+						subConfig = {};
+						this.systemConfig.packages[packageName] = subConfig;
 					}
 
-					if(!config.map) config.map = {};
-					config.map[subPath.replace(/\/index\.js$/, '.js')] = subPath;
+					if(!subConfig.map) subConfig.map = {};
+					subConfig.map[subPath.replace(/\/index\.js$/, '.js')] = subPath;
 
-					this.systemPending.packages[packageName] = config;
+					this.systemPending.packages[packageName] = subConfig;
 
 					sys.config(this.systemPending);
 					this.systemPending = { packages: {} };
