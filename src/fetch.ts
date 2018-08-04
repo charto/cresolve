@@ -44,7 +44,7 @@ export const redirectCodes: { [code: number]: boolean } = {
 }
 
 export function request(uri: string, head?: boolean, ttl = 3) {
-	const result = new Promise((resolve: (result: string | Promise<string>) => void, reject) => {
+	const result = new Promise((resolve: (result: { uri: string, text: string } | Promise<{ uri: string, text: string }>) => void, reject) => {
 		if(!ttl) reject(new Error('Too many redirects'));
 
 		const proto = uri.substr(0, 7).toLowerCase();
@@ -63,14 +63,14 @@ export function request(uri: string, head?: boolean, ttl = 3) {
 			if(res.statusCode == 200) {
 				if(head) {
 					req.abort();
-					return(resolve(''));
+					return(resolve({ uri, text: '' }));
 				}
 
 				const chunkList: Buffer[] = [];
 
 				res.on('error', reject);
 				res.on('data', (chunk: Buffer) => chunkList.push(chunk));
-				res.on('end', () => resolve(Buffer.concat(chunkList).toString('utf-8')));
+				res.on('end', () => resolve({ uri, text: Buffer.concat(chunkList).toString('utf-8') }));
 			} else if(!res.statusCode || !redirectCodes[res.statusCode]) {
 				req.abort();
 				return(reject(res));
@@ -122,9 +122,10 @@ export function ifExists(uri: string) {
 	return(result);
 }
 
-function fetchResponse(data: string) {
+function fetchResponse(data: string, url: string) {
 	return({
 		ok: true,
+		url,
 		text: () => Promise.resolve(data)
 	});
 }
@@ -141,7 +142,7 @@ export function fetch(uri: string) {
 			const xhr = new XMLHttpRequest();
 
 			xhr.onerror = reject;
-			xhr.onload = () => xhr.status != 200 ? reject(xhr) : resolve(fetchResponse(xhr.responseText));
+			xhr.onload = () => xhr.status != 200 ? reject(xhr) : resolve(fetchResponse(xhr.responseText, xhr.responseURL));
 
 			xhr.open('GET', uri, true);
 			xhr.send(null);		
@@ -151,10 +152,10 @@ export function fetch(uri: string) {
 			fs.readFile(
 				url2path(uri),
 				'utf-8',
-				(err: NodeJS.ErrnoException, data: string) => err ? reject(err) : resolve(fetchResponse(data))
+				(err: NodeJS.ErrnoException, data: string) => err ? reject(err) : resolve(fetchResponse(data, uri))
 			);
 		} else {
-			resolve(request(uri).then((data: string) => fetchResponse(data)));
+			resolve(request(uri).then(({ uri, text }) => fetchResponse(text, uri)));
 		}
 	});
 

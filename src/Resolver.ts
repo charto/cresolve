@@ -118,9 +118,10 @@ export class Resolver {
 			rootUri = resolved;
 
 			return(this.fetch(rootUri + '/package.json'));
-		}).then(
-			(res: { text(): Promise<string> }) => res.text()
-		).then((data: string) => {
+		}).then((res: { url: string, text(): Promise<string> }) => {
+			rootUri = res.url.replace(/\/package\.json$/, '');
+			return(res.text());
+		}).then((data: string) => {
 			// console.log(data);
 			const pkg = JSON.parse(data);
 			let main = pkg.main || 'index.js';
