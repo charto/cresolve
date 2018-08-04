@@ -105,7 +105,7 @@ export class Resolver {
 			sys.config({ map, packages });
 			console.log(sys.getConfig())
 
-			return(rootUri + '/' + pathName);
+			return((rootUri + '/' + pathName).replace(/(\/[^./]+)$/, '$1.js'));
 		});
 
 		return(result);
