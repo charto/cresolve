@@ -1,5 +1,10 @@
 import * as SystemJS from 'systemjs';
 
+export interface PackageLocation {
+	modulesRoot: string;
+	name: string;
+}
+
 export class Resolver {
 
 	constructor(
@@ -7,19 +12,34 @@ export class Resolver {
 		public fetch: (uri: string) => Promise<{ text(): Promise<string> }>
 	) {}
 
-	findPackageStep(guess: string, alternatives: string[]): Promise<string> {
-		return(this.ifExists(guess + '/package.json').then(() => guess, () => {
-			const next = alternatives!.pop();
-			if(!next) throw(new Error());
+	findPackageStep(guess: PackageLocation, alternatives: PackageLocation[]): Promise<string> {
+		const packageRoot = guess.modulesRoot + guess.name;
 
-			return(this.findPackageStep(next, alternatives));
-		}));
+		const result = this.ifExists(packageRoot + '/package.json').then(
+			() => {
+				if(!this.globalMeta[guess.modulesRoot + '*']) {
+					this.globalMeta[guess.modulesRoot + '*'] = { globals:
+						{ process: 'cresolve://process' }
+					};
+				}
+
+				return(packageRoot);
+			},
+			() => {
+				const next = alternatives!.pop();
+				if(!next) throw(new Error());
+
+				return(this.findPackageStep(next, alternatives));
+			}
+		);
+
+		return(result);
 	}
 
 	findPackage(
 		name: string,
 		guess: string,
-		alternatives: string[] = []
+		alternatives: PackageLocation[] = []
 	) {
 		const lowName = name.toLowerCase();
 		const parts = guess.split('/');
@@ -39,10 +59,15 @@ export class Resolver {
 
 		for(let partNum = 2; partNum < partCount; ++partNum) {
 			dir = dir + '/' + parts[partNum];
-			alternatives.push(dir + '/node_modules/' + name);
+			alternatives.push({ modulesRoot: dir + '/node_modules/', name});
 		}
 
-		if(found) alternatives.push(parts.slice(0, found + 1).join('/'));
+		if(found) {
+			alternatives.push({
+				modulesRoot: parts.slice(0, found).join('/') + '/',
+				name: parts[found]
+			});
+		}
 
 		return(this.findPackageStep(alternatives.pop()!, alternatives));
 	}
@@ -63,7 +88,7 @@ export class Resolver {
 		const result = this.findPackage(
 			packageName,
 			guess,
-			[ 'http://unpkg.com/' + packageName ]
+			[{ modulesRoot: 'http://unpkg.com/', name: packageName }]
 		).then((resolved: string) => {
 			rootUri = resolved;
 
@@ -102,7 +127,7 @@ export class Resolver {
 			map[packageName] = rootUri;
 			packages[packageName] = packageSpec;
 
-			sys.config({ map, packages });
+			sys.config({ map, meta: this.globalMeta, packages });
 			console.log(sys.getConfig())
 
 			return((rootUri + '/' + pathName).replace(/(\/[^./]+)$/, '$1.js'));
@@ -152,9 +177,11 @@ export class Resolver {
 		return(result);
 	}
 
-	patchSystem(system: typeof SystemJS) {
+	patchSystem(system: typeof SystemJS, env = 'production') {
 		const originalResolve = system.resolve;
 		const resolver = this;
+
+		system.set('cresolve://process', system.newModule({ env: { 'NODE_ENV': env } }));
 
 		system.resolve = function(
 			this: typeof SystemJS,
@@ -165,6 +192,7 @@ export class Resolver {
 		};
 	}
 
+	globalMeta: any = {};
 	metadata: { [key: string]: Object } = {};
 
 }
