@@ -152,11 +152,12 @@ export class Resolver {
 			if(sys.registry.get(uri)) return(uri);
 			if(sys.registry.get(indexUri)) return(indexUri);
 
-			return(this.ifExists(uri).then(() => uri));
+			return(this.ifExists(uri).catch(() => this.ifExists(indexUri)));
 		}).catch(
-			() => this.ifExists(indexUri).then(() => indexUri)
-		).catch(
-			() => this.findFile(name, uri, sys)
+			() => this.findFile(name, uri, sys).then((found: string) => {
+				indexUri = found.replace(/(\.js)?$/, '/index.js');
+				return(this.ifExists(found).catch(() => this.ifExists(indexUri)));
+			})
 		).then((resolved: string) => {
 			if(resolved == indexUri) {
 				// TODO: Configure path mapping in SystemJS.

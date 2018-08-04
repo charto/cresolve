@@ -96,14 +96,14 @@ export function ifExists(uri: string) {
 	console.log('Testing existence: ' + uri);
 
 	const result = new Promise((
-		resolve: (result: FS.Stats | XMLHttpRequest | Promise<FS.Stats | XMLHttpRequest | string>) => void,
+		resolve: (result: string | Promise<string>) => void,
 		reject
 	) => {
 		if(!isNode) {
 			const xhr = new XMLHttpRequest();
 
 			xhr.onerror = reject;
-			xhr.onload = () => xhr.status != 200 ? reject(xhr) : resolve(xhr);
+			xhr.onload = () => xhr.status != 200 ? reject(xhr) : resolve(uri);
 
 			xhr.open('HEAD', uri, true);
 			xhr.send(null);		
@@ -112,10 +112,10 @@ export function ifExists(uri: string) {
 
 			fs.stat(
 				url2path(uri),
-				(err: NodeJS.ErrnoException, stat: FS.Stats) => err ? reject(err) : resolve(stat)
+				(err: NodeJS.ErrnoException, stat: FS.Stats) => err ? reject(err) : resolve(uri)
 			);
 		} else {
-			resolve(request(uri, true));
+			resolve(request(uri, true).then(() => uri));
 		}
 	});
 
