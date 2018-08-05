@@ -52,7 +52,9 @@ export class Resolver {
 			},
 			() => {
 				const next = alternatives!.pop();
-				if(!next) throw(new Error());
+				if(!next) {
+					throw(new Error('Cannot find root of package using Node.js module resolution: ' + guess.name));
+				}
 
 				return(this.findPackageStep(next, alternatives));
 			}
@@ -104,7 +106,9 @@ export class Resolver {
 	) {
 		// Parse imports that start with an npm package name.
 		const parts = name.match(/^((@[0-9a-z][-_.0-9a-z]*\/)?[0-9a-z][-_.0-9a-z]*)(\/(.*))?/);
-		if(!parts) throw(new Error());
+		if(!parts) {
+			throw(new Error('Cannot parse missing dependency using Node.js module resolution: ' + name));
+		}
 
 		const packageName = parts[1];
 		let pathName = parts[4];
