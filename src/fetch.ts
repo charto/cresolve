@@ -93,7 +93,6 @@ export function request(uri: string, head?: boolean, ttl = 3) {
 
 export function ifExists(uri: string) {
 	const proto = uri.substr(0, 7).toLowerCase();
-	console.log('Testing existence: ' + uri);
 
 	const result = new Promise((
 		resolve: (result: string | Promise<string>) => void,
@@ -132,7 +131,6 @@ function fetchResponse(data: string, url: string) {
 
 export function fetch(uri: string) {
 	const proto = uri.substr(0, 7).toLowerCase();
-	console.log('Fetching: ' + uri);
 
 	const result = new Promise((
 		resolve: (result: { text: () => Promise<string> } | Promise<{ text: () => Promise<string> }>) => void,

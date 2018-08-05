@@ -8,7 +8,7 @@ export interface PackageLocation {
 }
 
 export interface SystemConfig {
-	map?: { [name: string]: any };
+	map?: { [name: string]: string };
 	meta?: { [name: string]: any };
 	packages: { [name: string]: any };
 };
@@ -122,7 +122,6 @@ export class Resolver {
 			rootUri = res.url.replace(/\/package\.json$/, '');
 			return(res.text());
 		}).then((data: string) => {
-			// console.log(data);
 			const pkg = JSON.parse(data);
 			let main = pkg.main || 'index.js';
 
@@ -146,12 +145,16 @@ export class Resolver {
 
 			subConfig.main = main;
 
-			// Use browser entry point if available.
 			if(typeof(pkg.browser) == 'string') {
+				// Use browser entry point.
 				if(pathName == main) pathName = pkg.browser;
 				main = pkg.browser;
 			} else if(typeof(pkg.browser) == 'object') {
+				// Use browser equivalents of packages and files.
 				if(!subConfig.map) subConfig.map = {};
+
+				// Add mappings from package.json browser field to SystemJS
+				// config, where they get parsed.
 
 				for(let key of Object.keys(pkg.browser)) {
 					subConfig.map[key] = pkg.browser[key] || '@empty';
@@ -162,7 +165,6 @@ export class Resolver {
 
 			pathName = pathName || main;
 
-			console.log(JSON.stringify(pending, null, '\t'))
 			sys.config(pending);
 			this.systemPending = { packages: {} };
 
@@ -188,37 +190,44 @@ export class Resolver {
 			if(sys.registry.get(uri)) return(uri);
 			if(sys.registry.get(indexUri)) return(indexUri);
 
+			// Check if the dependency path is an existing .js file
+			// or directory containing index.js.
+
 			return(this.ifExists(uri).catch(() => this.ifExists(indexUri)));
 		}).catch(
+			// Try to find the dependency using npm-style resolution.
+
 			() => this.findFile(name, uri, sys).then((found: string) => {
+				// Check if the resolved path is an existing .js file
+				// or directory containing index.js.
+
 				indexUri = found.replace(/(\.js)?$/, '/index.js');
 				return(this.ifExists(found).catch(() => this.ifExists(indexUri)));
 			})
 		).then((resolved: string) => {
-			if(resolved == indexUri) {
-				const found = this.packageTree.find(indexUri);
+			const index = resolved == indexUri && this.packageTree.find(indexUri);
 
-				if(found) {
-					const packageName = found.node!['/data']!;
-					const subPath = '.' + indexUri.substr(found.next!);
+			// If the path was a directory containing index.js,
+			// add a mapping with the full path to SystemJS config.
 
-					console.log(subPath);
+			if(index) {
+				const packageName = index.node!['/data']!;
+				const subPath = '.' + indexUri.substr(index.next!);
 
-					let subConfig = this.systemConfig.packages[packageName];
+				let subConfig = this.systemConfig.packages[packageName];
 
-					if(!subConfig) {
-						subConfig = {};
-						this.systemConfig.packages[packageName] = subConfig;
-					}
-
-					if(!subConfig.map) subConfig.map = {};
-					subConfig.map[subPath.replace(/\/index\.js$/, '.js')] = subPath;
-
-					this.systemPending.packages[packageName] = subConfig;
-
-					sys.config(this.systemPending);
-					this.systemPending = { packages: {} };
+				if(!subConfig) {
+					subConfig = {};
+					this.systemConfig.packages[packageName] = subConfig;
 				}
+
+				if(!subConfig.map) subConfig.map = {};
+				subConfig.map[subPath.replace(/\/index\.js$/, '.js')] = subPath;
+
+				this.systemPending.packages[packageName] = subConfig;
+
+				sys.config(this.systemPending);
+				this.systemPending = { packages: {} };
 			}
 
 			uri = resolved;
@@ -226,6 +235,7 @@ export class Resolver {
 			return(originalResolve.call(sys, name, parentName));
 		}).then((resolved: string) => {
 			// Verify that SystemJS was correctly configured.
+
 			if(resolved != uri) {
 				throw(new Error('Misconfiguration: ' + resolved + ' != ' + uri));
 			}
@@ -240,7 +250,13 @@ export class Resolver {
 		const originalResolve = system.resolve;
 		const resolver = this;
 
+		// Set up a special URI for finding a shim module for the global
+		// process object, required by some npm packages even in browsers.
+
 		system.set('global:process', system.newModule({ env: { 'NODE_ENV': env } }));
+
+		// Hook SystemJS path resolution to detect missing files and try
+		// to add mappings according to Node.js module resolution.
 
 		system.resolve = function(
 			this: typeof SystemJS,
