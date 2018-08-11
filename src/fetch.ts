@@ -91,18 +91,40 @@ export function request(uri: string, head?: boolean, ttl = 3) {
 	return(result);
 }
 
-export function ifExists(uri: string) {
-	const proto = uri.substr(0, 7).toLowerCase();
+const existsCache: { [uri: string]: Promise<string> } = {};
 
-	const result = new Promise((
+export function ifExists(uri: string) {
+	const result = existsCache[uri] || new Promise((
 		resolve: (result: string | Promise<string>) => void,
 		reject
 	) => {
+		const proto = uri.substr(0, 7).toLowerCase();
+
 		if(!isNode) {
+			const ss = window.sessionStorage;
+			const key = 'cresolve/ifExists/' + uri;
+			const item = ss && ss.getItem(key);
+
+			if(item) {
+				if(item.match(/^[0-9]+$/)) reject({ status: +item });
+				else resolve(item);
+
+				return;
+			}
+
 			const xhr = new XMLHttpRequest();
 
 			xhr.onerror = reject;
-			xhr.onload = () => xhr.status != 200 ? reject(xhr) : resolve(uri);
+			xhr.onload = () => {
+				if(xhr.status != 200) {
+					if(ss) ss.setItem(key, '' + xhr.status);
+					reject(xhr);
+				} else {
+					uri = xhr.responseURL;
+					if(ss) ss.setItem(key, uri);
+					resolve(uri);
+				}
+			};
 
 			xhr.open('HEAD', uri, true);
 			xhr.send(null);		
@@ -118,6 +140,8 @@ export function ifExists(uri: string) {
 		}
 	});
 
+	existsCache[uri] = result;
+
 	return(result);
 }
 
@@ -129,18 +153,43 @@ function fetchResponse(data: string, url: string) {
 	});
 }
 
-export function fetch(uri: string) {
-	const proto = uri.substr(0, 7).toLowerCase();
+const fetchCache: { [uri: string]: Promise<any> } = {};
 
-	const result = new Promise((
+export function fetch(uri: string, config?: any) {
+	const useCache = config && config.cache == 'force-cache';
+
+	const result = (useCache && fetchCache[uri]) || new Promise((
 		resolve: (result: { text: () => Promise<string> } | Promise<{ text: () => Promise<string> }>) => void,
 		reject
 	) => {
+		const proto = uri.substr(0, 7).toLowerCase();
+
 		if(!isNode) {
+			const ss = window.sessionStorage;
+			const key = 'cresolve/fetch/' + uri;
+			const uriKey = 'cresolve/fetch-uri/' + uri;
+
+			if(useCache && ss) {
+				const data = ss.getItem(key);
+				const target = ss.getItem(uriKey);
+
+				if(data && target) return(resolve(fetchResponse(data, target)));
+			}
+
 			const xhr = new XMLHttpRequest();
 
 			xhr.onerror = reject;
-			xhr.onload = () => xhr.status != 200 ? reject(xhr) : resolve(fetchResponse(xhr.responseText, xhr.responseURL));
+			xhr.onload = () => {
+				if(xhr.status != 200) {
+					reject(xhr);
+				} else {
+					if(useCache && ss) {
+						ss.setItem(key, '' + xhr.responseText);
+						ss.setItem(uriKey, '' + xhr.responseURL);
+					}
+					resolve(fetchResponse(xhr.responseText, xhr.responseURL));
+				}
+			};
 
 			xhr.open('GET', uri, true);
 			xhr.send(null);		
@@ -156,6 +205,8 @@ export function fetch(uri: string) {
 			resolve(request(uri).then(({ uri, text }) => fetchResponse(text, uri)));
 		}
 	});
+
+	if(useCache) fetchCache[uri] = result;
 
 	return(result);
 }

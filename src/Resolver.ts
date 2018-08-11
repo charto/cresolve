@@ -121,7 +121,7 @@ export class Resolver {
 		).then((resolved: string) => {
 			rootUri = resolved;
 
-			return(this.fetch(rootUri + '/package.json'));
+			return(this.fetch(rootUri + '/package.json', { cache: 'force-cache' }));
 		}).then((res: { url: string, text(): Promise<string> }) => {
 			rootUri = res.url.replace(/\/package\.json$/, '');
 			return(res.text());
