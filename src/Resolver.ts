@@ -22,34 +22,14 @@ export class Resolver {
 
 	constructor(
 		public ifExists: (uri: string) => Promise<any>,
-		public fetch: (uri: string) => Promise<{ text(): Promise<string> }>
+		public fetch: (uri: string, config?: any) => Promise<{ text(): Promise<string> }>
 	) {}
 
 	findPackageStep(guess: PackageLocation, alternatives: PackageLocation[]): Promise<string> {
 		const packageRoot = guess.modulesRoot + guess.name;
 
 		const result = this.ifExists(packageRoot + '/package.json').then(
-			() => {
-				const modulesGlob = guess.modulesRoot + '*';
-
-				if(!this.systemConfig.meta[modulesGlob]) {
-					this.systemConfig.meta[modulesGlob] = {
-						globals: { process: 'global:process' }
-					};
-
-					this.systemConfig.packages[guess.modulesRoot] = {
-						defaultExtension: 'js'
-					};
-
-					if(!this.systemPending.meta) this.systemPending.meta = {};
-					if(!this.systemPending.packages) this.systemPending.packages = {};
-
-					this.systemPending.meta[modulesGlob] = this.systemConfig.meta[modulesGlob];
-					this.systemPending.packages[guess.modulesRoot] = this.systemConfig.packages[guess.modulesRoot];
-				}
-
-				return(packageRoot);
-			},
+			(uri: string) => packageRoot,
 			() => {
 				const next = alternatives!.pop();
 				if(!next) {
@@ -123,7 +103,28 @@ export class Resolver {
 
 			return(this.fetch(rootUri + '/package.json', { cache: 'force-cache' }));
 		}).then((res: { url: string, text(): Promise<string> }) => {
-			rootUri = res.url.replace(/\/package\.json$/, '');
+			rootUri = res.url.replace(/\/package\.json$/i, '');
+
+			const modulesRoot = rootUri.replace(/[^/]*$/, '');
+			const modulesGlob = modulesRoot + '*';
+			console.log(modulesGlob);
+
+			if(!this.systemConfig.meta[modulesGlob]) {
+				this.systemConfig.meta[modulesGlob] = {
+					globals: { process: 'global:process' }
+				};
+
+				this.systemConfig.packages[modulesRoot] = {
+					defaultExtension: 'js'
+				};
+
+				if(!this.systemPending.meta) this.systemPending.meta = {};
+				if(!this.systemPending.packages) this.systemPending.packages = {};
+
+				this.systemPending.meta[modulesGlob] = this.systemConfig.meta[modulesGlob];
+				this.systemPending.packages[modulesRoot] = this.systemConfig.packages[modulesRoot];
+			}
+
 			return(res.text());
 		}).then((data: string) => {
 			const pkg = JSON.parse(data);
@@ -185,38 +186,35 @@ export class Resolver {
 		originalResolve: typeof SystemJS.resolve
 	) {
 		let uri: string;
-		let indexUri: string;
+		let otherUri: string;
 
-		const result = originalResolve.call(sys, name, parentName).then((resolved: string) => {
-			uri = resolved;
-			indexUri = uri.replace(/(\.js)?$/, '/index.js');
+		const findAlternatives = (base: string) => {
+			uri = base;
+
+			if(uri.match(/\.ts$/)) otherUri = uri + 'x';
+			else otherUri = uri.replace(/(\.js)?$/, '/index.js');
 
 			if(sys.registry.get(uri)) return(uri);
-			if(sys.registry.get(indexUri)) return(indexUri);
+			if(sys.registry.get(otherUri)) return(otherUri);
 
-			// Check if the dependency path is an existing .js file
-			// or directory containing index.js.
+			// Check if the dependency path is an existing .js file, or
+			// directory containing index.js. For .ts files try .tsx extension.
 
-			return(this.ifExists(uri).catch(() => this.ifExists(indexUri)));
-		}).catch(
+			return(this.ifExists(uri).catch(() => this.ifExists(otherUri)));
+		};
+
+		const result = originalResolve.call(sys, name, parentName).then(findAlternatives).catch(
 			// Try to find the dependency using npm-style resolution.
-
-			() => this.findFile(name, uri, sys).then((found: string) => {
-				// Check if the resolved path is an existing .js file
-				// or directory containing index.js.
-
-				indexUri = found.replace(/(\.js)?$/, '/index.js');
-				return(this.ifExists(found).catch(() => this.ifExists(indexUri)));
-			})
+			() => this.findFile(name, uri, sys).then(findAlternatives)
 		).then((resolved: string) => {
-			const index = resolved == indexUri && this.packageTree.find(indexUri);
+			const other = resolved == otherUri && this.packageTree.find(otherUri);
 
 			// If the path was a directory containing index.js,
 			// add a mapping with the full path to SystemJS config.
 
-			if(index) {
-				const packageName = index.node!['/data']!;
-				const subPath = '.' + indexUri.substr(index.next!);
+			if(other) {
+				const packageName = other.node!['/data']!;
+				const subPath = '.' + otherUri.substr(other.next!);
 
 				let subConfig = this.systemConfig.packages[packageName];
 
