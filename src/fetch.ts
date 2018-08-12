@@ -2,6 +2,8 @@ import * as FS from 'fs';
 import * as URL from 'url';
 import * as HTTP from 'http';
 
+import { FetchResponse, fetchResponse } from './fetchResponse';
+
 export const isNode = (
 	typeof(process) == 'object' &&
 	Object.prototype.toString.call(process) == '[object process]'
@@ -145,21 +147,13 @@ export function ifExists(uri: string) {
 	return(result);
 }
 
-function fetchResponse(data: string, url: string) {
-	return({
-		ok: true,
-		url,
-		text: () => Promise.resolve(data)
-	});
-}
-
-const fetchCache: { [uri: string]: Promise<any> } = {};
+const fetchCache: { [uri: string]: Promise<FetchResponse> } = {};
 
 export function fetch(uri: string, config?: any) {
 	const useCache = config && config.cache == 'force-cache';
 
 	const result = (useCache && fetchCache[uri]) || new Promise((
-		resolve: (result: { text: () => Promise<string> } | Promise<{ text: () => Promise<string> }>) => void,
+		resolve: (result: FetchResponse | Promise<FetchResponse>) => void,
 		reject
 	) => {
 		const proto = uri.substr(0, 7).toLowerCase();

@@ -1,6 +1,7 @@
 import * as SystemJS from 'systemjs';
 
 import { PathTree } from './PathTree';
+import { FetchResponse, fetchResponse } from './fetchResponse';
 
 export interface PackageLocation {
 	modulesRoot: string;
@@ -22,7 +23,7 @@ export class Resolver {
 
 	constructor(
 		public ifExists: (uri: string) => Promise<string>,
-		public fetch: (uri: string, config?: any) => Promise<{ text(): Promise<string> }>
+		public fetch: (uri: string, config?: any) => Promise<FetchResponse>
 	) {}
 
 	private findStep(guess: PackageLocation, alternatives: PackageLocation[]): Promise<string> {
@@ -105,7 +106,7 @@ export class Resolver {
 			rootUri = resolved;
 
 			return(this.fetch(rootUri + '/package.json', { cache: 'force-cache' }));
-		}).then((res: { url: string, text(): Promise<string> }) => {
+		}).then((res: FetchResponse) => {
 			rootUri = res.url.replace(/\/package\.json$/i, '');
 
 			const modulesRoot = rootUri.replace(/[^/]*$/, '');
