@@ -7,8 +7,7 @@
   "scripts": {
     "tsc": "tsc",
     "prepublish": "tsc -p src && tsc -p src/ts-system.json",
-    "test": "tsc -p test && node test/test.js",
-    "start": "csrv ."
+    "test": "tsc -p test && node test/test.js"
   },
   "author": "Juha Järvi",
   "license": "MIT",
@@ -24,16 +23,9 @@
     "resolve"
   ],
   "devDependencies": {
-    "@types/bluebird": "^3.5.20",
-    "@types/node": "^6.0.110",
-    "@types/node-fetch": "^1.6.9",
+    "@types/node": "^10.5.8",
     "@types/systemjs": "^0.20.6",
-    "bluebird": "^3.5.1",
-    "charto-ajax": "^1.0.0",
-    "charto-loader": "^0.1.1",
-    "csrv": "^0.1.0",
-    "node-fetch": "^2.1.2",
-    "systemjs": "~0.21.3",
-    "typescript": "^2.8.3"
+    "systemjs": "~0.21.4",
+    "typescript": "^3.0.1"
   }
 }

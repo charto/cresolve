@@ -21,11 +21,11 @@ export interface GeneratedConfig extends SystemConfig {
 export class Resolver {
 
 	constructor(
-		public ifExists: (uri: string) => Promise<any>,
+		public ifExists: (uri: string) => Promise<string>,
 		public fetch: (uri: string, config?: any) => Promise<{ text(): Promise<string> }>
 	) {}
 
-	findPackageStep(guess: PackageLocation, alternatives: PackageLocation[]): Promise<string> {
+	private findStep(guess: PackageLocation, alternatives: PackageLocation[]): Promise<string> {
 		const packageRoot = guess.modulesRoot + guess.name;
 
 		const result = this.ifExists(packageRoot + '/package.json').then(
@@ -36,7 +36,7 @@ export class Resolver {
 					throw(new Error('Cannot find root of package using Node.js module resolution: ' + guess.name));
 				}
 
-				return(this.findPackageStep(next, alternatives));
+				return(this.findStep(next, alternatives));
 			}
 		);
 
@@ -76,7 +76,7 @@ export class Resolver {
 			});
 		}
 
-		return(this.findPackageStep(alternatives.pop()!, alternatives));
+		return(this.findStep(alternatives.pop()!, alternatives));
 	}
 
 	findFile(
@@ -89,6 +89,9 @@ export class Resolver {
 		if(!parts) {
 			throw(new Error('Cannot parse missing dependency using Node.js module resolution: ' + name));
 		}
+
+		const config = this.systemConfig;
+		const pending = this.pending;
 
 		const packageName = parts[1];
 		let pathName = parts[4];
@@ -107,22 +110,21 @@ export class Resolver {
 
 			const modulesRoot = rootUri.replace(/[^/]*$/, '');
 			const modulesGlob = modulesRoot + '*';
-			console.log(modulesGlob);
 
-			if(!this.systemConfig.meta[modulesGlob]) {
-				this.systemConfig.meta[modulesGlob] = {
+			if(!config.meta[modulesGlob]) {
+				config.meta[modulesGlob] = {
 					globals: { process: 'global:process' }
 				};
 
-				this.systemConfig.packages[modulesRoot] = {
+				config.packages[modulesRoot] = {
 					defaultExtension: 'js'
 				};
 
-				if(!this.systemPending.meta) this.systemPending.meta = {};
-				if(!this.systemPending.packages) this.systemPending.packages = {};
+				if(!pending.meta) pending.meta = {};
+				if(!pending.packages) pending.packages = {};
 
-				this.systemPending.meta[modulesGlob] = this.systemConfig.meta[modulesGlob];
-				this.systemPending.packages[modulesRoot] = this.systemConfig.packages[modulesRoot];
+				pending.meta[modulesGlob] = config.meta[modulesGlob];
+				pending.packages[modulesRoot] = config.packages[modulesRoot];
 			}
 
 			return(res.text());
@@ -132,9 +134,6 @@ export class Resolver {
 
 			this.jsonTbl[packageName] = pkg;
 			this.packageTree.insert(rootUri, packageName);
-
-			const config = this.systemConfig;
-			const pending = this.systemPending;
 
 			config.map[packageName] = rootUri;
 
@@ -171,7 +170,7 @@ export class Resolver {
 			pathName = pathName || main;
 
 			sys.config(pending);
-			this.systemPending = { packages: {} };
+			this.pending = { packages: {} };
 
 			return((rootUri + '/' + pathName).replace(/(\/[^./]+)$/, '$1.js'));
 		});
@@ -179,7 +178,7 @@ export class Resolver {
 		return(result);
 	}
 
-	sysResolve(
+	systemResolve(
 		name: string,
 		parentName: string,
 		sys: typeof SystemJS,
@@ -226,10 +225,10 @@ export class Resolver {
 				if(!subConfig.map) subConfig.map = {};
 				subConfig.map[subPath.replace(/\/index\.js$/, '.js')] = subPath;
 
-				this.systemPending.packages[packageName] = subConfig;
+				this.pending.packages[packageName] = subConfig;
 
-				sys.config(this.systemPending);
-				this.systemPending = { packages: {} };
+				sys.config(this.pending);
+				this.pending = { packages: {} };
 			}
 
 			uri = resolved;
@@ -265,13 +264,16 @@ export class Resolver {
 			name: string,
 			parentName: string,
 		) {
-			return(resolver.sysResolve(name, parentName, this, originalResolve));
+			return(resolver.systemResolve(name, parentName, this, originalResolve));
 		};
+
+		return(this);
 	}
 
+	private packageTree = new PathTree<string>();
+	private pending: SystemConfig = { packages: {} };
+
 	systemConfig: GeneratedConfig = { map: {}, meta: {}, packages: {} };
-	systemPending: SystemConfig = { packages: {} };
-	packageTree = new PathTree<string>();
 	jsonTbl: { [key: string]: Object } = {};
 
 }

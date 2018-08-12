@@ -127,7 +127,7 @@ export function ifExists(uri: string) {
 			};
 
 			xhr.open('HEAD', uri, true);
-			xhr.send(null);		
+			xhr.send();
 		} else if(proto == 'file://') {
 			const fs: typeof FS = eval("require('fs')");
 
@@ -192,7 +192,7 @@ export function fetch(uri: string, config?: any) {
 			};
 
 			xhr.open('GET', uri, true);
-			xhr.send(null);		
+			xhr.send();
 		} else if(proto == 'file://') {
 			const fs: typeof FS = eval("require('fs')");
 
