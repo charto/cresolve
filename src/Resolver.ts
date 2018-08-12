@@ -15,9 +15,24 @@ export interface SystemConfig {
 };
 
 export interface GeneratedConfig extends SystemConfig {
-	map: { [name: string]: any };
+	map: { [name: string]: string };
 	meta: { [name: string]: any };
 };
+
+type HandlerCache<Type> = { [uri: string]: {
+	promise: Promise<Type>,
+	resolve: (result: Type) => void,
+	reject: (result: string) => void
+} };
+
+interface ResolverMessage {
+	method: string;
+	uri: string;
+	success?: boolean;
+	target?: string;
+	body?: string;
+	config?: any;
+}
 
 export class Resolver {
 
@@ -278,6 +293,104 @@ export class Resolver {
 
 		return(this);
 	}
+
+	createPort<Result>(resolve: (result: Result) => void, reject: () => void, result: Result) {
+		const channel = new MessageChannel();
+		const local = channel.port1;
+
+		local.onmessage = (event) => {
+			const req: ResolverMessage = event.data;
+			const method = req.method;
+
+			function send(success: boolean, target?: string, body?: string) {
+				const res: ResolverMessage = { method, uri: req.uri, success };
+
+				if(target) res.target = target;
+				if(body) res.body = body;
+
+				local.postMessage(res);
+			}
+
+			if(method == 'ifExists') {
+				this.ifExists(req.uri).then(
+					function(uri) { send(true, uri); },
+					function(err) { send(false); }
+				);
+			}
+
+			if(method == 'fetch') {
+				this.fetch(req.uri, req.config || {}).then(
+					function(res) { res.text().then(function(body) { send(true, res.url, body); }); },
+					function(err) { send(false); }
+				);
+			}
+
+			if(method == 'loaded') {
+				if(req.success) resolve(result);
+				else reject();
+			}
+		}
+
+		return(channel.port2);
+	}
+
+	setPort(port: MessagePort) {
+		function createHandler<Type>(method: string, cache: HandlerCache<Type>) {
+			return(function(uri: string, config?: any) {
+				let handler = cache[uri];
+
+				if(!handler) {
+					handler = {} as any;
+
+					handler.promise = new Promise((resolve: (result: Type) => void, reject) => {
+						handler.resolve = resolve;
+						handler.reject = reject;
+						port.postMessage({ method: method, uri, config });
+					});
+
+					cache[uri] = handler;
+				}
+
+				return(handler.promise);
+			});
+		}
+
+		this.port = port;
+		this.ifExists = createHandler<string>('ifExists', this.existsCache);
+		this.fetch = createHandler('fetch', this.fetchCache);
+
+		port.onmessage = (event) => {
+			const res: ResolverMessage = event.data;
+
+			if(res.method == 'ifExists') {
+				const handler = this.existsCache[res.uri];
+
+				if(res.success) {
+					handler.resolve(res.target!);
+				} else {
+					handler.reject('');
+				}
+			}
+
+			if(res.method == 'fetch') {
+				const handler = this.fetchCache[res.uri];
+
+				if(res.success) {
+					handler.resolve(fetchResponse(res.body!, res.target!));
+				} else {
+					handler.reject('');
+				}
+			}
+		}
+	}
+
+	reportLoad(success: boolean) {
+		this.port.postMessage({ method: 'loaded', success });
+	}
+
+	private port: MessagePort;
+	private existsCache: HandlerCache<string> = {};
+	private fetchCache: HandlerCache<FetchResponse> = {};
 
 	private packageTree = new PathTree<string>();
 	private pending: SystemConfig = { packages: {} };

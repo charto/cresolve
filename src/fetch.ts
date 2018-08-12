@@ -103,7 +103,7 @@ export function ifExists(uri: string) {
 		const proto = uri.substr(0, 7).toLowerCase();
 
 		if(!isNode) {
-			const ss = window.sessionStorage;
+			const ss = typeof(window) == 'object' && window.sessionStorage;
 			const key = 'cresolve/ifExists/' + uri;
 			const item = ss && ss.getItem(key);
 
@@ -159,7 +159,7 @@ export function fetch(uri: string, config?: any) {
 		const proto = uri.substr(0, 7).toLowerCase();
 
 		if(!isNode) {
-			const ss = window.sessionStorage;
+			const ss = typeof(window) == 'object' && window.sessionStorage;
 			const key = 'cresolve/fetch/' + uri;
 			const uriKey = 'cresolve/fetch-uri/' + uri;
 
