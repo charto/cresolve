@@ -6,7 +6,7 @@
   "typings": "dist/index.d.ts",
   "scripts": {
     "tsc": "tsc",
-    "prepublish": "tsc -p src",
+    "prepublish": "tsc -p src && tsc -p src/ts-system.json",
     "test": "tsc -p test && node test/test.js",
     "start": "csrv ."
   },

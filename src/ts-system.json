@@ -1,0 +1,20 @@
+{
+	"compileOnSave": true,
+	"compilerOptions": {
+		"declaration": false,
+		"lib": [ "dom", "es5", "es2015.collection", "es2015.iterable", "es2015.promise" ],
+		"module": "system",
+		"moduleResolution": "node",
+		"noImplicitAny": true,
+		"noImplicitThis": true,
+		"outFile": "../dist/index-system.js",
+		"removeComments": false,
+		"sourceMap": false,
+		"strictNullChecks": true,
+		"target": "es5",
+		"types": [ "node", "systemjs" ]
+	},
+	"files": [
+		"../cresolve.ts"
+	]
+}
