@@ -165,6 +165,14 @@ export class Resolver {
 				}
 			}
 
+			if(packageName == 'typescript') {
+				// Fix incorrect module type autodetection due to comments
+				// containing ES6 code.
+
+				if(!subConfig.meta) subConfig.meta = {};
+				subConfig.meta['*.js'] = { exports: 'ts', format: 'global' };
+			}
+
 			pending.packages[packageName] = subConfig;
 
 			pathName = pathName || main;
