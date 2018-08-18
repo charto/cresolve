@@ -107,8 +107,6 @@ export class Resolver {
 		}
 
 		const config = this.systemConfig;
-		const pending = this.pending;
-
 		const packageName = parts[1];
 		let pathName = parts[4];
 		let rootUri: string;
@@ -126,6 +124,7 @@ export class Resolver {
 
 			const modulesRoot = rootUri.replace(/[^/]*$/, '');
 			const modulesGlob = modulesRoot + '*';
+			const pending = this.pending;
 
 			if(!config.meta[modulesGlob]) {
 				config.meta[modulesGlob] = {
@@ -145,6 +144,7 @@ export class Resolver {
 
 			return(res.text());
 		}).then((data: string) => {
+			const pending = this.pending;
 			const pkg = JSON.parse(data);
 			let main = pkg.main || 'index.js';
 
@@ -271,19 +271,19 @@ export class Resolver {
 		return(result);
 	}
 
-	patchSystem(system: typeof SystemJS, env = 'production') {
-		const originalResolve = system.resolve;
+	patchSystem(sys: typeof SystemJS, env = 'production') {
+		const originalResolve = sys.resolve;
 		const resolver = this;
 
 		// Set up a special URI for finding a shim module for the global
 		// process object, required by some npm packages even in browsers.
 
-		system.set('global:process', system.newModule({ env: { 'NODE_ENV': env } }));
+		sys.set('global:process', sys.newModule({ env: { 'NODE_ENV': env } }));
 
 		// Hook SystemJS path resolution to detect missing files and try
 		// to add mappings according to Node.js module resolution.
 
-		system.resolve = function(
+		sys.resolve = function(
 			this: typeof SystemJS,
 			name: string,
 			parentName: string,
