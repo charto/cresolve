@@ -118,8 +118,19 @@ export function ifExists(uri: string) {
 
 			xhr.onerror = reject;
 			xhr.onload = () => {
-				if(xhr.status != 200) {
-					if(ss) ss.setItem(key, '' + xhr.status);
+				let status = xhr.status;
+				const contentType = xhr.getResponseHeader('Content-Type');
+
+				if(contentType && contentType.match(/^text\/html/i)) {
+					// Unexpected HTML content might be an index page,
+					// when index.js or package.json inside the directory
+					// should be loaded instead.
+
+					status = 404;
+				}
+
+				if(status != 200) {
+					if(ss) ss.setItem(key, '' + status);
 					reject(xhr);
 				} else {
 					uri = xhr.responseURL;

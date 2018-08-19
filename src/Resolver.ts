@@ -130,53 +130,78 @@ export class Resolver {
 		guess: string,
 		sys: typeof SystemJS,
 	) {
-		// Parse imports that start with an npm package name.
-		const parts = name.match(/^((@[0-9a-z][-_.0-9a-z]*\/)?[0-9a-z][-_.0-9a-z]*)(\/(.*))?/);
-		if(!parts) {
-			throw(new Error('Cannot parse missing dependency using Node.js module resolution: ' + name));
-		}
-
 		const config = this.systemConfig;
-		const packageName = parts[1];
-		let pathName = parts[4];
+		let packageName: string;
+		let pathName: string;
 		let rootUri: string;
+		let jsonFetched: Promise<string>;
 
-		const result = this.findPackage(
-			packageName,
-			guess,
-			[{ modulesRoot: 'http://unpkg.com/', name: packageName }]
-		).then((resolved: string) => {
-			rootUri = resolved;
+		if(name.match(/^\.\.?(\/|$)/)) {
+			// Handle importing packages through paths like '.' or '..'
+			// or './something' (always starting with './), looking for a
+			// package.json inside. Remove final slash or file extension
+			// (maybe accidentally added to a directory name by SystemJS).
 
-			return(this.fetch(rootUri + '/package.json', { cache: 'force-cache' }));
-		}).then((res: FetchResponse) => {
-			rootUri = res.url.replace(/\/package\.json$/i, '');
+			rootUri = guess.replace(/(\/|\.[a-z]+)$/, '');
 
-			const modulesRoot = rootUri.replace(/[^/]*$/, '');
-			const modulesGlob = modulesRoot + '*';
-			const pending = this.pending;
+			jsonFetched = this.fetch(rootUri + '/package.json').then((res: FetchResponse) => {
+				return(res.text());
+			});
+		} else {
+			// Parse imports that start with an npm package name.
+			const parts = name.match(/^((@[0-9a-z][-_.0-9a-z]*\/)?[0-9a-z][-_.0-9a-z]*)(\/(.*))?/);
 
-			if(!config.meta[modulesGlob]) {
-				config.meta[modulesGlob] = {
-					globals: { process: 'global:process' }
-				};
-
-				config.packages[modulesRoot] = {
-					defaultExtension: 'js'
-				};
-
-				if(!pending.meta) pending.meta = {};
-				if(!pending.packages) pending.packages = {};
-
-				pending.meta[modulesGlob] = config.meta[modulesGlob];
-				pending.packages[modulesRoot] = config.packages[modulesRoot];
+			if(!parts) {
+				throw(new Error('Cannot parse missing dependency using Node.js module resolution: ' + name));
 			}
 
-			return(res.text());
-		}).then((data: string) => {
+			// Match 'name' or '@scope/name'.
+			packageName = parts[1];
+
+			// Match 'path/inside/package'.
+			pathName = parts[4];
+
+			jsonFetched = this.findPackage(
+				packageName,
+				guess,
+				[{ modulesRoot: 'http://unpkg.com/', name: packageName }]
+			).then((resolved: string) => {
+				rootUri = resolved;
+
+				return(this.fetch(rootUri + '/package.json', { cache: 'force-cache' }));
+			}).then((res: FetchResponse) => {
+				rootUri = res.url.replace(/\/package\.json$/i, '');
+
+				const modulesRoot = rootUri.replace(/[^/]*$/, '');
+				const modulesGlob = modulesRoot + '*';
+				const pending = this.pending;
+
+				if(!config.meta[modulesGlob]) {
+					config.meta[modulesGlob] = {
+						globals: { process: 'global:process' }
+					};
+
+					config.packages[modulesRoot] = {
+						defaultExtension: 'js'
+					};
+
+					if(!pending.meta) pending.meta = {};
+					if(!pending.packages) pending.packages = {};
+
+					pending.meta[modulesGlob] = config.meta[modulesGlob];
+					pending.packages[modulesRoot] = config.packages[modulesRoot];
+				}
+
+				return(res.text());
+			});
+		}
+
+		const result = jsonFetched.then((data: string) => {
 			const pending = this.pending;
 			const pkg = JSON.parse(data);
 			let main = pkg.main || 'index.js';
+
+			packageName = packageName || pkg.name || 'MAIN';
 
 			this.jsonTbl[packageName] = pkg;
 			this.packageTree.insert(rootUri, packageName);
