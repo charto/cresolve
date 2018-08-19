@@ -8,16 +8,23 @@ export interface PackageLocation {
 	name: string;
 }
 
+/** Parts of SystemJS configuration that this tool can autogenerate. */
+
 export interface SystemConfig {
 	map?: { [name: string]: string };
 	meta?: { [name: string]: any };
 	packages: { [name: string]: any };
 };
 
+/** Parts of SystemJS configuration this tool modifies for any package resolved. */
+
 export interface GeneratedConfig extends SystemConfig {
 	map: { [name: string]: string };
 	meta: { [name: string]: any };
 };
+
+/** Promise for an RPC message response and methods to set it when
+  * the response arrives. */
 
 type MessageHandler<Type> = {
 	promise: Promise<Type>,
@@ -25,14 +32,29 @@ type MessageHandler<Type> = {
 	reject: (result: string) => void
 };
 
+/** Cache mapping URLs to pending and fulfilled RPC message responses. */
+
 type HandlerCache<Type> = { [uri: string]: MessageHandler<Type> };
 
+/** Method to call in resolver internal RPC between Web Workers and UI thread. */
+
 const enum METHOD {
+	/** Request from / response to worker:
+	  * check file existence using UI thread cache. */
 	ifExists,
+
+	/** Request from / response to worker:
+	  * fetch file using UI thread cache. */
 	fetch,
+
+	/** Web Worker initialization success / failure signal. */
 	loaded,
+
+	/** Configuration change from worker, for UI thread to save in SessionStorage. */
 	config
 }
+
+/** Resolver internal RPC message between Web Workers and UI thread. */
 
 interface ResolverMessage {
 	method: METHOD;
@@ -51,6 +73,11 @@ function deepExtend(dst: { [key: string]: any }, src: { [key: string]: any }) {
 }
 
 export class Resolver {
+
+	/** @param ifExists Function returning a promise resolving to an URL
+	  *   address if it exists (after all redirections), rejected otherwise.
+	  * @param fetch The standard fetch function or a compatible polyfill.
+	  * @param systemConfig Optional initial SystemJS configuration. */
 
 	constructor(
 		public ifExists: (uri: string) => Promise<string>,
@@ -75,6 +102,13 @@ export class Resolver {
 
 		return(result);
 	}
+
+	/** Find URL address of an npm package root directory
+	  * (without slash at the end).
+	  *
+	  * @param name Name of npm package to find.
+	  * @param guess URL address SystemJS thought was inside the package.
+	  * @param alternatives Fallback array of possible package root URLs. */
 
 	findPackage(
 		name: string,
@@ -124,6 +158,14 @@ export class Resolver {
 
 		this.pending = { packages: {} };
 	}
+
+	/** Use Node.js module resolution to find a file SystemJS
+	  * resolved incorrectly (ifExists reported the file missing).
+	  * If possible, reconfigure SystemJS to work correctly.
+	  *
+	  * @param name Original path in import command.
+	  * @param guess Incorrect URL address resolved by SystemJS.
+	  * @param sys SystemJS object. */
 
 	findFile(
 		name: string,
@@ -345,6 +387,20 @@ export class Resolver {
 		return(this);
 	}
 
+	/** Called from the UI thread. Create a message channel port for
+	  * passing to a Web Worker, so it can defer all file fetches to the
+	  * UI thread, which has access to SessionStorage for caching results
+	  * between page loads.
+	  * As an additional feature, resolves a promise to given
+	  * result if the worker reports initialization success.
+	  *
+	  * @param sys SystemJS object to configure with any updates sent
+	  *   from the worker.
+	  * @param resolve Promise resolver to call if the worker reports
+	  *   initialization success through this resolver's RPC channel.
+	  * @param reject Called if the worker reports initialization failure.
+	  * @param result Value the promise resolver should be called with. */
+
 	createPort<Result>(
 		sys: typeof SystemJS,
 		resolve: (result: Result) => void,
@@ -420,6 +476,9 @@ export class Resolver {
 			});
 		}
 
+		this.existsCache = {};
+		this.fetchCache = {};
+
 		this.port = port;
 		this.ifExists = createHandler<string>(METHOD.ifExists, this.existsCache);
 		this.fetch = createHandler(METHOD.fetch, this.fetchCache);
@@ -455,17 +514,29 @@ export class Resolver {
 		}
 	}
 
+	/** Call in Web Worker initialization to report success / failure
+	  * to UI thread. Allows these loader messages to piggyback on the
+	  * resolver's internal RPC channel. */
+
 	reportLoad(success: boolean) {
 		this.port.postMessage({ method: METHOD.loaded, success });
 	}
 
+	/** Web Worker side message channel port for RPC messages. */
 	private port: MessagePort;
-	private existsCache: HandlerCache<string> = {};
-	private fetchCache: HandlerCache<FetchResponse> = {};
+
+	/** Cache (used in workers) mapping URLs to ifExists RPC message responses. */
+	private existsCache: HandlerCache<string>;
+
+	/** Cache (used in workers) mapping URLs to fetch RPC message responses. */
+	private fetchCache: HandlerCache<FetchResponse>;
 
 	private packageTree = new PathTree<string>();
+
+	/** New configuration object not yet used in SystemJS. */
 	private pending: SystemConfig = { packages: {} };
 
-	jsonTbl: { [key: string]: Object } = {};
+	/** Cache mapping package names to their package.json contents. */
+	jsonTbl: { [name: string]: Object } = {};
 
 }
