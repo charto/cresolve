@@ -1,7 +1,7 @@
 {
   "name": "cresolve",
-  "version": "0.0.1",
-  "description": "Node-style resolve for browsers",
+  "version": "1.0.0",
+  "description": "Node-style module resolution for SystemJS",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
   "scripts": {
@@ -20,10 +20,16 @@
   },
   "homepage": "https://github.com/charto/cresolve#readme",
   "keywords": [
-    "resolve"
+    "browser",
+    "config",
+    "node",
+    "npm",
+    "package",
+    "resolve",
+    "systemjs"
   ],
   "devDependencies": {
-    "@types/node": "^10.5.8",
+    "@types/node": "^10.7.1",
     "@types/systemjs": "^0.20.6",
     "systemjs": "~0.21.4",
     "typescript": "^3.0.1"
