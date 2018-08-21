@@ -3,11 +3,6 @@ import * as SystemJS from 'systemjs';
 import { PathTree } from './PathTree';
 import { FetchResponse, fetchResponse } from './fetchResponse';
 
-export interface PackageLocation {
-	modulesRoot: string;
-	name: string;
-}
-
 /** Parts of SystemJS configuration that this tool can autogenerate. */
 
 export interface SystemConfig {
@@ -85,19 +80,11 @@ export class Resolver {
 		public systemConfig: GeneratedConfig = { map: {}, meta: {}, packages: {} }
 	) {}
 
-	private findStep(guess: PackageLocation, alternatives: PackageLocation[]): Promise<string> {
-		const packageRoot = guess.modulesRoot + guess.name;
-
+	private findStep(packageRoot: string, alternatives: string[]): Promise<string> {
+		const next = alternatives.pop();
 		const result = this.ifExists(packageRoot + '/package.json').then(
 			(uri: string) => packageRoot,
-			() => {
-				const next = alternatives!.pop();
-				if(!next) {
-					throw(new Error('Cannot find root of package using Node.js module resolution: ' + guess.name));
-				}
-
-				return(this.findStep(next, alternatives));
-			}
+			() => next ? this.findStep(next, alternatives) : Promise.reject(null)
 		);
 
 		return(result);
@@ -110,37 +97,54 @@ export class Resolver {
 	  * @param guess URL address SystemJS thought was inside the package.
 	  * @param alternatives Fallback array of possible package root URLs. */
 
-	findPackage(
-		name: string,
+	findPackageRoot(
 		guess: string,
-		alternatives: PackageLocation[] = []
+		alternatives: string[] = [],
+		name?: string
 	) {
-		const lowName = name.toLowerCase();
-		const parts = guess.split('/');
-		let partCount = parts.length;
-		let found = 0;
+		const container = 'node_modules';
+		let first: string | undefined;
+		const guessLow = guess.toLowerCase();
+		const nameLow = name && name.toLowerCase();
+		let prevPrev: number | undefined;
+		let prev = guessLow.length;
+		let end: number;
 
-		while(partCount--) {
-			const lowPart = parts[partCount].toLowerCase();
-			if(lowPart == 'node_modules') { found = 0; break; }
-			if(found) { partCount = found; break; }
-			if(lowPart == lowName) found = partCount;
+		while((end = guessLow.lastIndexOf('/', prev)) >= 0) {
+			const part = guessLow.substr(end + 1, prev - end);
+
+			if(part == container) { if(!first && prevPrev) end = prevPrev + 1; first = void 0; break; }
+			if(first) { end = prev + 1; break; }
+			if(part == nameLow || part == nameLow + '.js') first = guess.substr(0, prev + 1);
+
+			prevPrev = prev;
+			prev = end - 1;
 		}
 
-		if(partCount <= 0) partCount = parts.length;
+		if(end < 0) end = guess.length;
 
-		let dir = parts.slice(0, 2).join('/');
+		prev = guess.indexOf('//') + 2;
+		let pos;
 
-		for(let partNum = 2; partNum < partCount; ++partNum) {
-			dir = dir + '/' + parts[partNum];
-			alternatives.push({ modulesRoot: dir + '/node_modules/', name});
-		}
+		do {
+			pos = guess.indexOf('/', prev) + 1 || end + 1;
+			const part = guessLow.substr(prev, pos - prev - 1);
 
-		if(found) {
-			alternatives.push({
-				modulesRoot: parts.slice(0, found).join('/') + '/',
-				name: parts[found]
-			});
+			if(part != container) {
+				alternatives.push(
+					guess.substr(0, pos - 1) +
+					(name ? '/node_modules/' + name : '')
+				);
+			}
+
+			prev = pos;
+		} while(pos < end);
+
+		if(first) {
+			// If the guessed path contained the package name,
+			// try that directory first.
+
+			alternatives.push(first);
 		}
 
 		return(this.findStep(alternatives.pop()!, alternatives));
@@ -159,6 +163,131 @@ export class Resolver {
 		this.pending = { packages: {} };
 	}
 
+	loadPackage(root: string) {
+		const result = this.fetch(
+			root + '/package.json',
+			{ cache: 'force-cache' }
+		).then((res: FetchResponse) => {
+			root = res.url.replace(/\/package\.json$/i, '');
+			return(res.text());
+		}).then((data: string) => ({ data, root }));
+
+		return(result);
+	}
+
+	private generateName() {
+		return('ANONYMOUS-' + ++this.suffix);
+	}
+
+	parsePackage(
+		sys: typeof SystemJS,
+		data: string,
+		rootAddress: string,
+		packageName?: string,
+		pathName?: string
+	) {
+		const config = this.systemConfig;
+		const pending = this.pending;
+		const pkg = JSON.parse(data);
+		let main = pkg.main || 'index.js';
+
+		packageName = (packageName || pkg.name || this.generateName()) as string;
+
+		packageName = this.packageTree.insert(rootAddress, packageName)['/data']!;
+		this.jsonTbl[packageName] = pkg;
+
+
+
+
+		const modulesRoot = rootAddress.replace(/((\/(node_modules|unpkg\.com))\/[^/]*)?$/i, '$2/');
+		const modulesGlob = modulesRoot + '*';
+
+		if(!config.meta[modulesGlob]) {
+			config.meta[modulesGlob] = {
+				globals: { process: 'global:process' }
+			};
+
+			config.packages[modulesRoot] = {
+				defaultExtension: 'js'
+			};
+
+			if(!pending.meta) pending.meta = {};
+			if(!pending.packages) pending.packages = {};
+
+			pending.meta[modulesGlob] = config.meta[modulesGlob];
+			pending.packages[modulesRoot] = config.packages[modulesRoot];
+		}
+
+
+
+
+
+		config.map[packageName] = rootAddress;
+
+		if(!pending.map) pending.map = {}
+		pending.map[packageName] = config.map[packageName];
+
+		let subConfig = config.packages[packageName];
+
+		if(!subConfig) {
+			subConfig = {};
+			config.packages[packageName] = subConfig;
+		}
+
+		subConfig.main = main;
+
+		if(typeof(pkg.browser) == 'string') {
+			// Use browser entry point.
+			if(pathName == main) pathName = pkg.browser;
+			main = pkg.browser;
+		} else if(typeof(pkg.browser) == 'object') {
+			// Use browser equivalents of packages and files.
+			if(!subConfig.map) subConfig.map = {};
+
+			// Add mappings from package.json browser field to SystemJS
+			// config, where they get parsed.
+
+			for(let key of Object.keys(pkg.browser)) {
+				subConfig.map[key] = pkg.browser[key] || '@empty';
+			}
+		}
+
+		if(packageName == 'typescript') {
+			// Fix incorrect module type autodetection due to comments
+			// containing ES6 code.
+
+			if(!subConfig.meta) subConfig.meta = {};
+			subConfig.meta['*.js'] = { exports: 'ts', format: 'global' };
+		}
+
+		pending.packages[packageName] = subConfig;
+		this.applyConfig(sys);
+
+		pathName = pathName || main;
+
+		return((rootAddress + '/' + pathName).replace(/(\/[^./]+)$/, '$1.js'));
+	}
+
+	private getRootPackage(sys: typeof SystemJS, guess: string) {
+		const node = this.packageTree.find(guess);
+
+		const result: Promise<typeof node | void> = node ? Promise.resolve(node) : this.findPackageRoot(
+			guess
+		).then(
+			(root: string) => this.loadPackage(root)
+		).then(({ data, root }) => {
+			this.parsePackage(sys, data, root);
+		}).catch(() => {
+			// If no package.json was found higher in the tree,
+			// just use the parent directory as the package root.
+
+			const rootAddress = guess.replace(/\/[^/]*$/, '');
+			this.packageTree.insert(rootAddress, this.generateName());
+		});
+
+		return(result);
+	}
+
 	/** Use Node.js module resolution to find a file SystemJS
 	  * resolved incorrectly (ifExists reported the file missing).
 	  * If possible, reconfigure SystemJS to work correctly.
@@ -168,15 +297,13 @@ export class Resolver {
 	  * @param sys SystemJS object. */
 
 	findFile(
-		name: string,
-		guess: string,
 		sys: typeof SystemJS,
+		name: string,
+		parentAddress: string,
+		guess: string
 	) {
 		const config = this.systemConfig;
-		let packageName: string;
-		let pathName: string;
-		let rootUri: string;
-		let jsonFetched: Promise<string>;
+		let result: Promise<string>;
 
 		if(name.match(/^\.\.?(\/|$)/)) {
 			// Handle importing packages through paths like '.' or '..'
@@ -184,125 +311,57 @@ export class Resolver {
 			// package.json inside. Remove final slash or file extension
 			// (maybe accidentally added to a directory name by SystemJS).
 
-			rootUri = guess.replace(/(\/|\.[a-z]+)$/, '');
+			const root = guess.replace(/(\/|\.[a-z]+)$/, '/package.json');
 
-			jsonFetched = this.fetch(rootUri + '/package.json').then((res: FetchResponse) => {
-				return(res.text());
-			});
-		} else {
-			// Parse imports that start with an npm package name.
-			const parts = name.match(/^((@[0-9a-z][-_.0-9a-z]*\/)?[0-9a-z][-_.0-9a-z]*)(\/(.*))?/);
+			result = this.fetch(
+				root,
+				{ cache: 'force-cache' }
+			).then(
+				(res: FetchResponse) => res.text()
+			).then((data: string) =>
+				this.parsePackage(sys, data, root)
+			);
 
-			if(!parts) {
-				throw(new Error('Cannot parse missing dependency using Node.js module resolution: ' + name));
-			}
-
-			// Match 'name' or '@scope/name'.
-			packageName = parts[1];
-
-			// Match 'path/inside/package'.
-			pathName = parts[4];
-
-			jsonFetched = this.findPackage(
-				packageName,
-				guess,
-				[{ modulesRoot: 'http://unpkg.com/', name: packageName }]
-			).then((resolved: string) => {
-				rootUri = resolved;
-
-				return(this.fetch(rootUri + '/package.json', { cache: 'force-cache' }));
-			}).then((res: FetchResponse) => {
-				rootUri = res.url.replace(/\/package\.json$/i, '');
-
-				const modulesRoot = rootUri.replace(/[^/]*$/, '');
-				const modulesGlob = modulesRoot + '*';
-				const pending = this.pending;
-
-				if(!config.meta[modulesGlob]) {
-					config.meta[modulesGlob] = {
-						globals: { process: 'global:process' }
-					};
-
-					config.packages[modulesRoot] = {
-						defaultExtension: 'js'
-					};
-
-					if(!pending.meta) pending.meta = {};
-					if(!pending.packages) pending.packages = {};
-
-					pending.meta[modulesGlob] = config.meta[modulesGlob];
-					pending.packages[modulesRoot] = config.packages[modulesRoot];
-				}
-
-				return(res.text());
-			});
+			return(result);
 		}
 
-		const result = jsonFetched.then((data: string) => {
-			const pending = this.pending;
-			const pkg = JSON.parse(data);
-			let main = pkg.main || 'index.js';
+		// Parse imports that start with an npm package name.
+		const parts = name.match(/^((@[0-9a-z][-_.0-9a-z]*\/)?[0-9a-z][-_.0-9a-z]*)(\/(.*))?/);
 
-			packageName = packageName || pkg.name || 'MAIN';
+		if(!parts) {
+			throw(new Error('Cannot parse missing dependency using Node.js module resolution: ' + name));
+		}
 
-			this.jsonTbl[packageName] = pkg;
-			this.packageTree.insert(rootUri, packageName);
+		// Match 'name' or '@scope/name'.
+		const packageName = parts[1];
 
-			config.map[packageName] = rootUri;
+		// Match 'path/inside/package'.
+		const pathName = parts[4];
 
-			if(!pending.map) pending.map = {}
-			pending.map[packageName] = config.map[packageName];
-
-			let subConfig = config.packages[packageName];
-
-			if(!subConfig) {
-				subConfig = {};
-				config.packages[packageName] = subConfig;
-			}
-
-			subConfig.main = main;
-
-			if(typeof(pkg.browser) == 'string') {
-				// Use browser entry point.
-				if(pathName == main) pathName = pkg.browser;
-				main = pkg.browser;
-			} else if(typeof(pkg.browser) == 'object') {
-				// Use browser equivalents of packages and files.
-				if(!subConfig.map) subConfig.map = {};
-
-				// Add mappings from package.json browser field to SystemJS
-				// config, where they get parsed.
-
-				for(let key of Object.keys(pkg.browser)) {
-					subConfig.map[key] = pkg.browser[key] || '@empty';
-				}
-			}
-
-			if(packageName == 'typescript') {
-				// Fix incorrect module type autodetection due to comments
-				// containing ES6 code.
-
-				if(!subConfig.meta) subConfig.meta = {};
-				subConfig.meta['*.js'] = { exports: 'ts', format: 'global' };
-			}
-
-			pending.packages[packageName] = subConfig;
-			this.applyConfig(sys);
-
-			pathName = pathName || main;
-
-			return((rootUri + '/' + pathName).replace(/(\/[^./]+)$/, '$1.js'));
-		});
+		result = (
+			parentAddress ? this.getRootPackage(sys, parentAddress) : Promise.resolve()
+		).then(() => this.findPackageRoot(
+			guess,
+			[ '//unpkg.com/' + packageName ],
+			packageName
+		)).catch(() => Promise.reject(
+			new Error('Cannot find root of package using Node.js module resolution: ' + packageName)
+		)).then(
+			(root: string) => this.loadPackage(root)
+		).then(({ data, root }) =>
+			this.parsePackage(sys, data, root, packageName, pathName)
+		);
 
 		return(result);
 	}
 
 	systemResolve(
-		name: string,
-		parentName: string,
 		sys: typeof SystemJS,
+		name: string,
+		parentAddress: string,
 		originalResolve: typeof SystemJS.resolve
 	) {
+		const config = this.systemConfig;
 		let uri: string;
 		let otherUri: string;
 
@@ -321,44 +380,53 @@ export class Resolver {
 			return(this.ifExists(uri).catch(() => this.ifExists(otherUri)));
 		};
 
-		const result = originalResolve.call(sys, name, parentName).then(findAlternatives).catch(
+		const result = originalResolve.call(sys, name, parentAddress).then(findAlternatives).catch(
 			// Try to find the dependency using npm-style resolution.
-			() => this.findFile(name, uri, sys).then(findAlternatives)
+			() => this.findFile(sys, name, parentAddress, uri).then(findAlternatives)
 		).then((resolved: string) => {
-			const other = resolved == otherUri && this.packageTree.find(otherUri);
+			// Ensure SystemJS is prepared to load the correct file
+			// even if autoconfiguration failed.
+			const prepared: Promise<string> = originalResolve.call(
+				sys,
+				resolved,
+				parentAddress
+			);
 
-			// If the path was a directory containing index.js,
-			// add a mapping with the full path to SystemJS config.
+			if(resolved != otherUri) return(prepared);
 
-			if(other) {
+			// If the path was a directory containing index.js or a .tsx file,
+			// add a mapping with the correct path to SystemJS config.
+
+			const configured = this.getRootPackage(sys, otherUri).then((other) => {
+				if(!other) other = this.packageTree.find(otherUri)!;
+
+				const pending = this.pending;
 				const packageName = other.node!['/data']!;
-				const subPath = '.' + otherUri.substr(other.next!);
 
-				let subConfig = this.systemConfig.packages[packageName];
+				if(!config.map[packageName]) {
+					config.map[packageName] = otherUri.substr(0, other.next!);
+
+					if(!pending.map) pending.map = {}
+					pending.map[packageName] = config.map[packageName];
+				}
+
+				let subConfig = config.packages[packageName];
 
 				if(!subConfig) {
 					subConfig = {};
-					this.systemConfig.packages[packageName] = subConfig;
+					config.packages[packageName] = subConfig;
 				}
 
 				if(!subConfig.map) subConfig.map = {};
-				subConfig.map[subPath.replace(/\/index\.js$/, '.js')] = subPath;
+				subConfig.map['.' + uri.substr(other.next!)] = '.' + otherUri.substr(other.next!);
 
-				this.pending.packages[packageName] = subConfig;
+				pending.packages[packageName] = subConfig;
 				this.applyConfig(sys);
-			}
 
-			uri = resolved;
+				return(prepared);
+			});
 
-			return(originalResolve.call(sys, name, parentName));
-		}).then((resolved: string) => {
-			// Verify that SystemJS was correctly configured.
-
-			if(resolved != uri) {
-				throw(new Error('Misconfiguration: ' + resolved + ' != ' + uri));
-			}
-
-			return(resolved);
+			return(configured);
 		});
 
 		return(result);
@@ -379,9 +447,9 @@ export class Resolver {
 		sys.resolve = function(
 			this: typeof SystemJS,
 			name: string,
-			parentName: string,
+			parentAddress: string,
 		) {
-			return(resolver.systemResolve(name, parentName, this, originalResolve));
+			return(resolver.systemResolve(this, name, parentAddress, originalResolve));
 		};
 
 		return(this);
@@ -535,6 +603,8 @@ export class Resolver {
 
 	/** New configuration object not yet used in SystemJS. */
 	private pending: SystemConfig = { packages: {} };
+
+	private suffix = 0;
 
 	/** Cache mapping package names to their package.json contents. */
 	jsonTbl: { [name: string]: Object } = {};
