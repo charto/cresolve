@@ -24,7 +24,8 @@ export class PathTree<Type> {
 			node = node[part] as TreeBranch<Type>;
 		}
 
-		node['/data'] = data;
+		node['/data'] = node['/data'] || data;
+		return(node);
 	}
 
 	find(path: string, result: { node?: TreeBranch<Type>, next?: number } = {}) {
