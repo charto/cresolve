@@ -28,26 +28,26 @@ export class PathTree<Type> {
 		return(node);
 	}
 
-	find(path: string, result: { node?: TreeBranch<Type>, next?: number } = {}) {
+	find(path: string, output: { node?: TreeBranch<Type>, next?: number } = {}) {
 		let node: TreeBranch<Type> | undefined = this.root;
+		let result: typeof output | undefined;
+		let next: number;
 		let pos = 0;
 
-		while(1) {
-			const next = path.indexOf('/', pos);
-			if(next < 0) break;
-
-			node = node[path.substr(pos, next - pos)] as TreeBranch<Type> | undefined;
-			if(!node) break;
-
+		while(
+			(next = path.indexOf('/', pos)) >= 0 &&
+			(node = node[path.substr(pos, next - pos)] as TreeBranch<Type> | undefined)
+		) {
 			if(node['/data']) {
+				result = output;
 				result.node = node;
 				result.next = next;
-
-				return(result);
 			}
 
 			pos = next + 1;
 		}
+
+		return(result);
 	}
 
 	root = new TreeBranch<Type>();
