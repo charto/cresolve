@@ -21,7 +21,8 @@ It solves pretty much all SystemJS configuration issues.
 
 ## Usage
 
-First load a Promise polyfill (if needed), SystemJS and the SystemJS -format bundle provided under `dist/index-system.js` for example using `<script>` tags.
+First load a Promise polyfill (if needed), SystemJS and the SystemJS -format bundle provided under
+[`dist/index-system.js`](https://unpkg.com/cresolve@1/dist/index-system.js) for example using `<script>` tags.
 
 Then import the resolver and patch SystemJS as follows:
 
