@@ -1,3 +1,6 @@
+// This file is part of cresolve, copyright (c) 2018- BusFaster Ltd.
+// Released under the MIT license, see LICENSE.
+
 import * as SystemJS from 'systemjs';
 
 import { PathTree } from './PathTree';
