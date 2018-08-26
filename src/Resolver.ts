@@ -290,11 +290,18 @@ export class Resolver {
 		return((rootAddress + '/' + pathName).replace(/(\/[^./]+)$/, '$1.js'));
 	}
 
-	private getRootPackage(sys: typeof SystemJS, guess: string) {
-		const node = this.packageTree.find(guess);
+	/** Look for and parse package.json for package containing a path,
+	  * applying any SystemJS configuration found.
+	  *
+	  * @param pathName Path possibly inside a package.
+	  * @return Package root path (without slash at the end) or just the parent
+	  *   directory if no package.json was found higher in the tree. */
+
+	private getContainingPackage(sys: typeof SystemJS, pathName: string) {
+		const node = this.packageTree.find(pathName);
 
 		const result: Promise<typeof node | void> = node ? Promise.resolve(node) : this.findPackageRoot(
-			guess
+			pathName
 		).then(
 			(root: string) => this.loadPackage(root)
 		).then(({ data, root }) => {
@@ -303,7 +310,7 @@ export class Resolver {
 			// If no package.json was found higher in the tree,
 			// just use the parent directory as the package root.
 
-			const rootAddress = guess.replace(/\/[^/]*$/, '');
+			const rootAddress = pathName.replace(/\/[^/]*\/?$/, '');
 			this.packageTree.insert(rootAddress, this.generateName());
 		});
 
@@ -325,7 +332,9 @@ export class Resolver {
 		guess: string
 	) {
 		const config = this.systemConfig;
-		let result: Promise<string>;
+		let rootFound: Promise<string>;
+		let packageName: string | undefined;
+		let pathName: string | undefined;
 
 		if(name.match(/^\.\.?(\/|$)/)) {
 			// Handle importing packages through paths like '.' or '..'
@@ -333,42 +342,37 @@ export class Resolver {
 			// package.json inside. Remove final slash or file extension
 			// (maybe accidentally added to a directory name by SystemJS).
 
-			const root = guess.replace(/(\/|\.[a-z]+)$/, '/package.json');
+			rootFound = Promise.resolve(guess.replace(/(\/|\.[a-z]+)$/, ''));
+		} else {
+			// Parse imports that start with an npm package name.
+			const parts = name.match(/^((@[0-9a-z][-_.0-9a-z]*\/)?[0-9a-z][-_.0-9a-z]*)(\/(.*))?/);
 
-			result = this.fetch(
-				root,
-				{ cache: 'force-cache' }
-			).then(
-				(res: FetchResponse) => res.text()
-			).then((data: string) =>
-				this.parsePackage(sys, data, root)
-			);
+			if(!parts) {
+				throw(new Error('Cannot parse missing dependency using Node.js module resolution: ' + name));
+			}
 
-			return(result);
+			// Match 'name' or '@scope/name'.
+			packageName = parts[1];
+
+			// Match 'path/inside/package'.
+			pathName = parts[4];
+
+			rootFound = (
+				// First look for configuration of the package that called import,
+				// ensuring browser mappings and dependency versions of the app
+				// main package.json get parsed.
+
+				parentAddress ? this.getContainingPackage(sys, parentAddress) : Promise.resolve()
+			).then(() => this.findPackageRoot(
+				guess,
+				[ 'https://unpkg.com/' + packageName ],
+				packageName
+			)).catch(() => Promise.reject(
+				new Error('Cannot find root of package using Node.js module resolution: ' + packageName)
+			));
 		}
 
-		// Parse imports that start with an npm package name.
-		const parts = name.match(/^((@[0-9a-z][-_.0-9a-z]*\/)?[0-9a-z][-_.0-9a-z]*)(\/(.*))?/);
-
-		if(!parts) {
-			throw(new Error('Cannot parse missing dependency using Node.js module resolution: ' + name));
-		}
-
-		// Match 'name' or '@scope/name'.
-		const packageName = parts[1];
-
-		// Match 'path/inside/package'.
-		const pathName = parts[4];
-
-		result = (
-			parentAddress ? this.getRootPackage(sys, parentAddress) : Promise.resolve()
-		).then(() => this.findPackageRoot(
-			guess,
-			[ '//unpkg.com/' + packageName ],
-			packageName
-		)).catch(() => Promise.reject(
-			new Error('Cannot find root of package using Node.js module resolution: ' + packageName)
-		)).then(
+		const result = rootFound.then(
 			(root: string) => this.loadPackage(root)
 		).then(({ data, root }) =>
 			this.parsePackage(sys, data, root, packageName, pathName)
@@ -419,7 +423,7 @@ export class Resolver {
 			// If the path was a directory containing index.js or a .tsx file,
 			// add a mapping with the correct path to SystemJS config.
 
-			const configured = this.getRootPackage(sys, otherUri).then((other) => {
+			const configured = this.getContainingPackage(sys, otherUri).then((other) => {
 				if(!other) other = this.packageTree.find(otherUri)!;
 
 				const pending = this.pending;
