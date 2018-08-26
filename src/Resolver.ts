@@ -225,8 +225,11 @@ export class Resolver {
 		packageName = this.packageTree.insert(rootAddress, packageName)['/data']!;
 		this.jsonTbl[packageName] = pkg;
 
-		const modulesRoot = rootAddress.replace(/((\/(node_modules|unpkg\.com))\/[^/]*)?$/i, '$2/');
-		const modulesGlob = modulesRoot + '*';
+		// Remove last path component (including surrounding slashes)
+		// if it follows node_modules or a hostname.
+
+		const modulesRoot = rootAddress.replace(/(\/node_modules|:\/\/[^/]+)\/[^/]*\/?$/i, '$1');
+		const modulesGlob = modulesRoot + '/\*';
 
 		if(!config.meta[modulesGlob]) {
 			config.meta[modulesGlob] = {
