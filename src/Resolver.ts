@@ -70,6 +70,28 @@ function deepExtend(dst: { [key: string]: any }, src: { [key: string]: any }) {
 	}
 }
 
+function semverMax(list: string[]) {
+	let result = list[0].split('.');
+
+	for(let num = 1; num < list.length; ++num) {
+		const other = list[num].split('.');
+		const partCount = Math.min(result.length, other.length);
+		let partNum = 0;
+
+		while(partNum < partCount) {
+			const part = result[partNum].replace(/^[ <=>~^]+ */, '');
+			const otherPart = other[partNum++].replace(/^[ <=>~^]+ */, '');
+
+			if(otherPart > part) result = other;
+			if(otherPart < part) break;
+		}
+
+		if(partNum >= partCount && other.length > partCount) result = other;
+	}
+
+	return(result.join('.'));
+}
+
 export class Resolver {
 
 	/** @param ifExists Function returning a promise resolving to an URL
@@ -277,6 +299,14 @@ export class Resolver {
 			}
 		}
 
+		for(let key of Object.keys(pkg.dependencies || {})) {
+			if(!this.versionTbl[key]) {
+				this.versionTbl[key] = semverMax(
+					pkg.dependencies[key].split(/ *\|\| *| +(- +)?/)
+				);
+			}
+		}
+
 		if(packageName == 'typescript') {
 			// Fix incorrect module type autodetection due to comments
 			// containing ES6 code.
@@ -368,7 +398,7 @@ export class Resolver {
 				parentAddress ? this.getContainingPackage(sys, parentAddress) : Promise.resolve()
 			).then(() => this.findPackageRoot(
 				guess,
-				[ 'https://unpkg.com/' + packageName ],
+				[ 'https://unpkg.com/' + packageName + '@' + (this.versionTbl[packageName!] || 'latest') ],
 				packageName
 			)).catch(() => Promise.reject(
 				new Error('Cannot find root of package using Node.js module resolution: ' + packageName)
@@ -635,6 +665,8 @@ export class Resolver {
 
 	/** Serial number of generated package names. */
 	private suffix = 0;
+
+	versionTbl: { [name: string]: string } = {};
 
 	/** Cache mapping package names to their package.json contents. */
 	jsonTbl: { [name: string]: Object } = {};
