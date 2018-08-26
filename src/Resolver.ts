@@ -100,7 +100,7 @@ export class Resolver {
 	  * @param guess URL address SystemJS thought was inside the package.
 	  * @param alternatives Fallback array of possible package root URLs. */
 
-	findPackageRoot(
+	private findPackageRoot(
 		guess: string,
 		alternatives: string[] = [],
 		name?: string
@@ -153,7 +153,10 @@ export class Resolver {
 		return(this.findStep(alternatives.pop()!, alternatives));
 	}
 
-	applyConfig(sys: typeof SystemJS) {
+	/** Send generated configuration to SystemJS,
+	  * and to UI thread if inside a Web Worker. */
+
+	private applyConfig(sys: typeof SystemJS) {
 		sys.config(this.pending);
 
 		if(this.port) {
@@ -166,7 +169,14 @@ export class Resolver {
 		this.pending = { packages: {} };
 	}
 
-	loadPackage(root: string) {
+	/** Fetch package.json and track redirects.
+	  *
+	  * @param root Package root address.
+	  * @return Object with fields:
+	  *   - data: package.json contents as a string.
+	  *   - root: Packare root address after redirections. */
+
+	private loadPackage(root: string) {
 		const result = this.fetch(
 			root + '/package.json',
 			{ cache: 'force-cache' }
@@ -182,7 +192,17 @@ export class Resolver {
 		return('ANONYMOUS-' + ++this.suffix);
 	}
 
-	parsePackage(
+	/** Parse package.json, apply any SystemJS configuration found and resolve
+	  * package entry point or a path relative to the package root.
+	  *
+	  * @param sys SystemJS object to configure.
+	  * @param data package.json contents as a string.
+	  * @param rootAddress Package root address.
+	  * @param packageName Name of the package if already known.
+	  * @param pathName Path to resolve from package root.
+	  * @return Resolved path inside package or package main entry point. */
+
+	private parsePackage(
 		sys: typeof SystemJS,
 		data: string,
 		rootAddress: string,
@@ -194,13 +214,16 @@ export class Resolver {
 		const pkg = JSON.parse(data);
 		let main = pkg.main || 'index.js';
 
+		// Get package name from path in import statement or package.json.
+		// If neither is available, generate a new name.
+
 		packageName = (packageName || pkg.name || this.generateName()) as string;
+
+		// Insert package root into virtual directory tree and get previous
+		// package name to avoid multiple different generated names.
 
 		packageName = this.packageTree.insert(rootAddress, packageName)['/data']!;
 		this.jsonTbl[packageName] = pkg;
-
-
-
 
 		const modulesRoot = rootAddress.replace(/((\/(node_modules|unpkg\.com))\/[^/]*)?$/i, '$2/');
 		const modulesGlob = modulesRoot + '*';
@@ -220,10 +243,6 @@ export class Resolver {
 			pending.meta[modulesGlob] = config.meta[modulesGlob];
 			pending.packages[modulesRoot] = config.packages[modulesRoot];
 		}
-
-
-
-
 
 		config.map[packageName] = rootAddress;
 
@@ -299,7 +318,7 @@ export class Resolver {
 	  * @param guess Incorrect URL address resolved by SystemJS.
 	  * @param sys SystemJS object. */
 
-	findFile(
+	private findFile(
 		sys: typeof SystemJS,
 		name: string,
 		parentAddress: string,
@@ -607,6 +626,7 @@ export class Resolver {
 	/** New configuration object not yet used in SystemJS. */
 	private pending: SystemConfig = { packages: {} };
 
+	/** Serial number of generated package names. */
 	private suffix = 0;
 
 	/** Cache mapping package names to their package.json contents. */
