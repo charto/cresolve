@@ -428,7 +428,7 @@ export class Resolver {
 			uri = base;
 
 			if(uri.match(/\.ts$/)) otherUri = uri + 'x';
-			else otherUri = uri.replace(/(\.js)?$/, '/index.js');
+			else otherUri = uri.replace(/\/?(\.js)?$/, '/index.js');
 
 			if(sys.registry.get(uri)) return(uri);
 			if(sys.registry.get(otherUri)) return(otherUri);
