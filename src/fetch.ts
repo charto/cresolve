@@ -121,6 +121,8 @@ export function ifExists(uri: string) {
 
 			xhr.onerror = reject;
 			xhr.onload = () => {
+				if(xhr.readyState != 4) return;
+
 				let status = xhr.status;
 				const contentType = xhr.getResponseHeader('Content-Type');
 
@@ -136,7 +138,7 @@ export function ifExists(uri: string) {
 					if(ss) ss.setItem(key, '' + status);
 					reject(xhr);
 				} else {
-					uri = xhr.responseURL;
+					uri = xhr.responseURL || uri;
 					if(ss) ss.setItem(key, uri);
 					resolve(uri);
 				}
@@ -188,14 +190,19 @@ export function fetch(uri: string, config?: any) {
 
 			xhr.onerror = reject;
 			xhr.onload = () => {
+				if(xhr.readyState != 4) return;
+
 				if(xhr.status != 200) {
 					reject(xhr);
 				} else {
+					uri = xhr.responseURL || uri;
+
 					if(useCache && ss) {
 						ss.setItem(key, '' + xhr.responseText);
-						ss.setItem(uriKey, '' + xhr.responseURL);
+						ss.setItem(uriKey, '' + uri);
 					}
-					resolve(fetchResponse(xhr.responseText, xhr.responseURL));
+
+					resolve(fetchResponse(xhr.responseText, uri));
 				}
 			};
 
