@@ -281,8 +281,6 @@ export class Resolver {
 			config.packages[packageName] = subConfig;
 		}
 
-		subConfig.main = main;
-
 		if(typeof(pkg.browser) == 'string') {
 			// Use browser entry point.
 			if(pathName == main) pathName = pkg.browser;
@@ -298,6 +296,8 @@ export class Resolver {
 				subConfig.map[key] = pkg.browser[key] || '@empty';
 			}
 		}
+
+		subConfig.main = main;
 
 		for(let key of Object.keys(pkg.dependencies || {})) {
 			if(!this.versionTbl[key]) {
@@ -397,7 +397,7 @@ export class Resolver {
 
 				parentAddress ? this.getContainingPackage(sys, parentAddress) : Promise.resolve()
 			).then(() => this.findPackageRoot(
-				guess,
+				parentAddress || guess,
 				[ 'https://unpkg.com/' + packageName + '@' + (this.versionTbl[packageName!] || 'latest') ],
 				packageName
 			)).catch(() => Promise.reject(
